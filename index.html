@@ -11,32 +11,37 @@
 ThunkableWebviewerExtension.receiveMessage(async function(message) {
   try {
     const input = JSON.parse(message);
-    const { date, title, playerID, appID, authKey } = input;
+    const { date, heading, title, reminderName, playerID, appID, authKey } = input;
 
-    // ✅ Basic validation
-    if (!date || !title || !playerID || !appID || !authKey) {
-      throw new Error("Missing required fields: date, title, playerID, appID, authKey");
+    // ✅ Validate required fields
+    if (!date || !heading || !title || !reminderName || !playerID || !appID || !authKey) {
+      throw new Error("Missing required fields: date, heading, title, reminderName, playerID, appID, authKey");
     }
 
-    // ✅ Create local date with 8 AM time
-    // The user’s local timezone is automatically applied by JavaScript
+    // ✅ Create local datetime at 8 AM
     const localDateTime = new Date(`${date}T08:00:00`);
-
     if (isNaN(localDateTime)) throw new Error("Invalid date format. Use YYYY-MM-DD");
 
-    // ✅ Convert to ISO UTC time for OneSignal
-    const utcDateTime = localDateTime.toISOString(); // e.g. 2025-10-25T14:00:00.000Z (if user in UTC+6)
+    // ✅ Convert local time to UTC ISO string for OneSignal
+    const utcDateTime = localDateTime.toISOString();
 
-    // ✅ Prepare payload for OneSignal
+    // ✅ If time has already passed, send immediately
+    const now = new Date();
+    const sendNow = localDateTime < now;
+
+    // ✅ Build OneSignal payload
     const payload = {
       app_id: appID,
       include_player_ids: [playerID],
-      headings: { en: "Reminder" },
-      contents: { en: title },
-      send_after: utcDateTime
+      name: reminderName,               // Internal name for dashboard
+      headings: { en: heading },        // Dynamic title from user input
+      contents: { en: title },          // Notification message/body
     };
 
-    // ✅ Send request to OneSignal
+    // ✅ Add scheduling only if in the future
+    if (!sendNow) payload.send_after = utcDateTime;
+
+    // ✅ Send the request to OneSignal
     const response = await fetch("https://api.onesignal.com/notifications", {
       method: "POST",
       headers: {
@@ -49,10 +54,10 @@ ThunkableWebviewerExtension.receiveMessage(async function(message) {
 
     const result = await response.json();
 
-    // ✅ Send response back to Thunkable
+    // ✅ Send success response back to Thunkable
     ThunkableWebviewerExtension.postMessage(JSON.stringify({
       success: true,
-      utcScheduledTime: utcDateTime,
+      scheduledFor: sendNow ? "Now" : utcDateTime,
       response: result
     }));
 
